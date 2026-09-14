@@ -317,7 +317,7 @@ class Interpreter:
         for param, val in zip(func.parameters, arg_values):
             call_env.define(param.name, val, param.param_type)
 
-        return self.execute_function(func, call_env)
+        return self.execute_function(func, call_env, reset_steps=False)
 
     def execute_statement(self, stmt: StatementNode, env: Environment) -> None:
         """Execute a statement node within an environment. May raise _ReturnSignal."""
@@ -360,9 +360,15 @@ class Interpreter:
         raise InterpreterError(f"Unknown statement node type: {type(stmt)}")
 
     def execute_function(
-        self, func: FunctionDeclaration, env: Optional[Environment] = None
+        self,
+        func: FunctionDeclaration,
+        env: Optional[Environment] = None,
+        reset_steps: bool = True,
     ) -> Any:
         """Execute a function declaration and validate the return type."""
+        if reset_steps:
+            self.step_count = 0
+
         func_env = env if env is not None else Environment()
 
         try:
@@ -387,8 +393,11 @@ class Interpreter:
         self,
         node: Union[ExpressionNode, StatementNode, FunctionDeclaration, List[StatementNode]],
         env: Optional[Environment] = None,
+        reset_steps: bool = True,
     ) -> Any:
         """Universal entry point to evaluate expressions, statements, functions, or blocks."""
+        if reset_steps:
+            self.step_count = 0
         eval_env = env if env is not None else Environment()
 
         if isinstance(node, (LiteralInt, LiteralFloat, LiteralBool, LiteralString, VariableRef, BinaryOp, FunctionCall)):

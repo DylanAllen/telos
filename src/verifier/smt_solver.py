@@ -49,9 +49,12 @@ class SMTVerifier:
         expr: ExpressionNode,
         env: Dict[str, Any],
         path: str,
-        division_checks: List[Tuple[Any, str]],
+        division_checks: List[Tuple[Any, List[Any], str]],
+        path_conditions: Optional[List[Any]] = None,
     ) -> Any:
         """Translate an AST expression node into a Z3 symbolic expression."""
+        active_conditions = list(path_conditions) if path_conditions else []
+
         if isinstance(expr, LiteralInt):
             return z3.IntVal(expr.value)
         if isinstance(expr, LiteralFloat):
@@ -70,10 +73,10 @@ class SMTVerifier:
 
         if isinstance(expr, BinaryOp):
             left = self._eval_expression_symbolic(
-                expr.left, env, f"{path}.left", division_checks
+                expr.left, env, f"{path}.left", division_checks, active_conditions
             )
             right = self._eval_expression_symbolic(
-                expr.right, env, f"{path}.right", division_checks
+                expr.right, env, f"{path}.right", division_checks, active_conditions
             )
             op = expr.op
 
@@ -85,11 +88,11 @@ class SMTVerifier:
             if op == "mul":
                 return left * right
             if op == "div":
-                # Track divisor for division-by-zero check
-                division_checks.append((right, path))
+                # Track divisor along with active branch path conditions
+                division_checks.append((right, active_conditions, path))
                 return left / right
             if op == "mod":
-                division_checks.append((right, path))
+                division_checks.append((right, active_conditions, path))
                 return left % right
 
             # Comparisons
@@ -115,35 +118,53 @@ class SMTVerifier:
         body: List[StatementNode],
         env: Dict[str, Any],
         path_prefix: str,
-        division_checks: List[Tuple[Any, str]],
+        division_checks: List[Tuple[Any, List[Any], str]],
+        path_conditions: Optional[List[Any]] = None,
     ) -> Tuple[Dict[str, Any], Optional[Any]]:
         """Symbolically execute a list of statements, producing updated state and return expression."""
         current_env = dict(env)
         return_expr: Optional[Any] = None
+        active_conditions = list(path_conditions) if path_conditions else []
 
         for i, stmt in enumerate(body):
             stmt_path = f"{path_prefix}[{i}]"
 
             if isinstance(stmt, AssignStatement):
                 val = self._eval_expression_symbolic(
-                    stmt.expression, current_env, f"{stmt_path}.expression", division_checks
+                    stmt.expression,
+                    current_env,
+                    f"{stmt_path}.expression",
+                    division_checks,
+                    active_conditions,
                 )
                 current_env[stmt.variable_name] = val
 
             elif isinstance(stmt, IfElseStatement):
                 cond = self._eval_expression_symbolic(
-                    stmt.condition, current_env, f"{stmt_path}.condition", division_checks
+                    stmt.condition,
+                    current_env,
+                    f"{stmt_path}.condition",
+                    division_checks,
+                    active_conditions,
                 )
 
                 then_env, then_ret = self._execute_body_symbolic(
-                    stmt.then_branch, current_env, f"{stmt_path}.then_branch", division_checks
+                    stmt.then_branch,
+                    current_env,
+                    f"{stmt_path}.then_branch",
+                    division_checks,
+                    active_conditions + [cond],
                 )
 
                 else_env: Dict[str, Any] = current_env
                 else_ret: Optional[Any] = None
                 if stmt.else_branch:
                     else_env, else_ret = self._execute_body_symbolic(
-                        stmt.else_branch, current_env, f"{stmt_path}.else_branch", division_checks
+                        stmt.else_branch,
+                        current_env,
+                        f"{stmt_path}.else_branch",
+                        division_checks,
+                        active_conditions + [z3.Not(cond)],
                     )
 
                 # Merge variable states across branches using z3.If
@@ -174,7 +195,11 @@ class SMTVerifier:
 
             elif isinstance(stmt, ReturnStatement):
                 val = self._eval_expression_symbolic(
-                    stmt.value, current_env, f"{stmt_path}.value", division_checks
+                    stmt.value,
+                    current_env,
+                    f"{stmt_path}.value",
+                    division_checks,
+                    active_conditions,
                 )
                 return_expr = val
                 break
@@ -320,7 +345,7 @@ class SMTVerifier:
             )
 
         # 2. Symbolically execute function body
-        division_checks: List[Tuple[Any, str]] = []
+        division_checks: List[Tuple[Any, List[Any], str]] = []
         try:
             final_env, return_expr = self._execute_body_symbolic(
                 func.body, param_vars, "body", division_checks
@@ -393,10 +418,12 @@ class SMTVerifier:
 
         # 5. Check implicit division safety (divisor != 0)
         if check_division_safety:
-            for divisor_expr, div_path in division_checks:
+            for divisor_expr, path_conds, div_path in division_checks:
                 solver = z3.Solver()
                 for pre in precond_formulas:
                     solver.add(pre)
+                for pc in path_conds:
+                    solver.add(pc)
                 solver.add(divisor_expr == 0)
 
                 if solver.check() == z3.sat:

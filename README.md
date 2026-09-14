@@ -74,8 +74,8 @@ Large Language Models (LLMs) and autonomous agents operate differently:
 | **Phase 1** | **Core AST Schema & Local Interpreter** | ✅ Complete | Discriminated Pydantic v2 AST schema & sandboxed tree-walking runtime with step budgets. |
 | **Phase 2** | **Static Type Checker & Z3 SMT Verifier** | ✅ Complete | Static branch type checker & formal verification of invariants and division safety with Z3 counterexamples. |
 | **Phase 3** | **Builder Agent & Constrained Generation** | ✅ Complete | Agentic compiler using `instructor` to translate natural language intent to validated ASTs with zero syntax errors. |
-| **Phase 4** | **The Closed Self-Healing Loop** | 🔄 Next | Autonomous closed loop: Builder $\to$ Type Checker $\to$ Z3 Verifier $\to$ Interpreter with automatic remediation. |
-| **Phase 5** | **Content-Addressable Storage (CAS)** | 📋 Planned | RFC-8785 canonical serialization, SHA-256 hashing, and SQLite graph linking. |
+| **Phase 4** | **The Closed Self-Healing Loop** | ✅ Complete | Autonomous closed loop: Builder $\to$ Type Checker $\to$ Z3 Verifier $\to$ Interpreter with automatic remediation. |
+| **Phase 5** | **Content-Addressable Storage (CAS)** | 🔄 Next | RFC-8785 canonical serialization, SHA-256 hashing, and SQLite graph linking. |
 
 ---
 
@@ -206,6 +206,21 @@ print(ast.parameters)  # item_price (float), quantity (int), tax_rate (float)
 print(ast.return_type) # "float"
 ```
 
+### 5. Autonomous Closed Self-Healing Loop
+```python
+from src.orchestration.loop import SelfHealingLoop
+
+loop = SelfHealingLoop()
+result = loop.run(
+    intent="Divide x by y, and guarantee y can be 0 while the function never errors.",
+    test_inputs={"x": 10, "y": 0},
+)
+
+print(result.status)    # "SUCCESS"
+print(result.attempts)  # 2 (Attempt 1 intercepted by SMT, Attempt 2 synthesized guard)
+print(result.output)    # 0
+```
+
 ---
 
 ## Project Structure
@@ -229,13 +244,17 @@ telos/
 │   │   ├── type_checker.py     # Static branch type analysis
 │   │   ├── smt_solver.py       # Z3 SMT solver for invariants & safety
 │   │   └── __init__.py
-│   └── compiler/               # LLM compiler frontend
-│       ├── builder.py          # Constrained generation using instructor
+│   ├── compiler/               # LLM compiler frontend
+│   │   ├── builder.py          # Constrained generation using instructor
+│   │   └── __init__.py
+│   └── orchestration/          # Closed-loop autonomous pipeline
+│       ├── loop.py             # Self-healing orchestrator with retry budgets
 │       └── __init__.py
 └── tests/
     ├── test_phase1.py          # Core AST & runtime evaluation tests (22 tests)
     ├── test_phase2.py          # Static typing & Z3 SMT verification tests (13 tests)
-    └── test_phase3.py          # Builder agent & constrained decoding tests (5 tests)
+    ├── test_phase3.py          # Builder agent & constrained decoding tests (5 tests)
+    └── test_phase4.py          # Closed self-healing loop tests (4 tests)
 ```
 
 ---
