@@ -48,10 +48,15 @@ class TypeEnvironment:
 class TypeChecker:
     """Static type analyzer for AST expressions, statements, and function declarations."""
 
-    def __init__(self, function_registry: Optional[Dict[str, FunctionDeclaration]] = None):
+    def __init__(
+        self,
+        function_registry: Optional[Dict[str, FunctionDeclaration]] = None,
+        cas: Optional[Any] = None,
+    ):
         self.function_registry: Dict[str, FunctionDeclaration] = (
             dict(function_registry) if function_registry else {}
         )
+        self.cas = cas
 
     def register_function(self, identifier: str, func: FunctionDeclaration) -> None:
         """Register a known function declaration for cross-function type verification."""
@@ -188,11 +193,17 @@ class TypeChecker:
 
         if isinstance(expr, FunctionCall):
             target_func = self.function_registry.get(expr.target_hash)
+            if target_func is None and self.cas is not None:
+                retrieved = self.cas.get(expr.target_hash)
+                if isinstance(retrieved, FunctionDeclaration):
+                    self.function_registry[expr.target_hash] = retrieved
+                    target_func = retrieved
+
             if target_func is None:
                 return None, VerificationResult.rejected(
                     phase="STATIC_TYPE_CHECK",
                     error_type="UNDEFINED_FUNCTION",
-                    details=f"Function target hash '{expr.target_hash}' not found in registry",
+                    details=f"Function target hash '{expr.target_hash}' not found in registry or CAS store",
                     node_path=path,
                     instruction=f"Ensure the called function hash '{expr.target_hash}' exists in the CAS / registry.",
                     failed_ast_snapshot=expr.model_dump(),

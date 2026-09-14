@@ -168,12 +168,14 @@ class Interpreter:
         self,
         max_steps: int = 10_000,
         function_registry: Optional[Dict[str, FunctionDeclaration]] = None,
+        cas: Optional[Any] = None,
     ):
         self.max_steps: int = max_steps
         self.step_count: int = 0
         self.function_registry: Dict[str, FunctionDeclaration] = (
             dict(function_registry) if function_registry else {}
         )
+        self.cas = cas
 
     def register_function(self, identifier: str, func: FunctionDeclaration) -> None:
         """Register a function declaration by its hash or name."""
@@ -298,11 +300,17 @@ class Interpreter:
         raise InterpreterError(f"Unsupported binary operator: '{op}'")
 
     def _eval_function_call(self, node: FunctionCall, env: Environment) -> Any:
-        """Evaluate a function call by looking up the target hash in the registry."""
+        """Evaluate a function call by looking up the target hash in the registry or CAS."""
         func = self.function_registry.get(node.target_hash)
+        if func is None and self.cas is not None:
+            retrieved = self.cas.get(node.target_hash)
+            if isinstance(retrieved, FunctionDeclaration):
+                self.function_registry[node.target_hash] = retrieved
+                func = retrieved
+
         if func is None:
             raise FunctionNotFoundError(
-                f"Function with target hash '{node.target_hash}' not found in registry"
+                f"Function with target hash '{node.target_hash}' not found in registry or CAS store"
             )
 
         if len(node.arguments) != len(func.parameters):

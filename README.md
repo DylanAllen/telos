@@ -75,7 +75,7 @@ Large Language Models (LLMs) and autonomous agents operate differently:
 | **Phase 2** | **Static Type Checker & Z3 SMT Verifier** | ✅ Complete | Static branch type checker & formal verification of invariants and division safety with Z3 counterexamples. |
 | **Phase 3** | **Builder Agent & Constrained Generation** | ✅ Complete | Agentic compiler using `instructor` to translate natural language intent to validated ASTs with zero syntax errors. |
 | **Phase 4** | **The Closed Self-Healing Loop** | ✅ Complete | Autonomous closed loop: Builder $\to$ Type Checker $\to$ Z3 Verifier $\to$ Interpreter with automatic remediation. |
-| **Phase 5** | **Content-Addressable Storage (CAS)** | 🔄 Next | RFC-8785 canonical serialization, SHA-256 hashing, and SQLite graph linking. |
+| **Phase 5** | **Content-Addressable Storage (CAS)** | ✅ Complete | RFC-8785 canonical serialization, SHA-256 hashing, and SQLite graph linking. |
 
 ---
 
@@ -221,6 +221,39 @@ print(result.attempts)  # 2 (Attempt 1 intercepted by SMT, Attempt 2 synthesized
 print(result.output)    # 0
 ```
 
+### 6. Content-Addressable Storage & Function Linking
+```python
+from src.schema.nodes import FunctionDeclaration, Parameter, ReturnStatement, BinaryOp, VariableRef, FunctionCall
+from src.storage.cas import ContentAddressedStore
+from src.runtime.interpreter import Interpreter, Environment
+
+cas = ContentAddressedStore(":memory:")
+
+# Store Function A: add(a, b) -> a + b
+func_a = FunctionDeclaration(
+    name="add",
+    parameters=[Parameter(name="a", param_type="int"), Parameter(name="b", param_type="int")],
+    return_type="int",
+    body=[ReturnStatement(value=BinaryOp(op="add", left=VariableRef(name="a"), right=VariableRef(name="b")))],
+)
+hash_a = cas.put(func_a)
+
+# Function B calls Function A by its content hash!
+func_b = FunctionDeclaration(
+    name="double_add",
+    parameters=[Parameter(name="x", param_type="int")],
+    return_type="int",
+    body=[ReturnStatement(value=FunctionCall(target_hash=hash_a, arguments=[VariableRef(name="x"), VariableRef(name="x")]))],
+)
+hash_b = cas.put(func_b)
+
+# Execute Function B: Interpreter traverses CAS automatically
+interpreter = Interpreter(cas=cas)
+env = Environment()
+env.define("x", 21, "int")
+print(interpreter.execute_function(func_b, env))  # Output: 42
+```
+
 ---
 
 ## Project Structure
@@ -247,14 +280,18 @@ telos/
 │   ├── compiler/               # LLM compiler frontend
 │   │   ├── builder.py          # Constrained generation using instructor
 │   │   └── __init__.py
-│   └── orchestration/          # Closed-loop autonomous pipeline
-│       ├── loop.py             # Self-healing orchestrator with retry budgets
+│   ├── orchestration/          # Closed-loop autonomous pipeline
+│   │   ├── loop.py             # Self-healing orchestrator with retry budgets
+│   │   └── __init__.py
+│   └── storage/                # Content-Addressable Storage (CAS)
+│       ├── cas.py              # RFC-8785 canonicalization & SQLite graph store
 │       └── __init__.py
 └── tests/
     ├── test_phase1.py          # Core AST & runtime evaluation tests (22 tests)
     ├── test_phase2.py          # Static typing & Z3 SMT verification tests (13 tests)
     ├── test_phase3.py          # Builder agent & constrained decoding tests (5 tests)
-    └── test_phase4.py          # Closed self-healing loop tests (4 tests)
+    ├── test_phase4.py          # Closed self-healing loop tests (4 tests)
+    └── test_phase5.py          # Content-addressable storage & linking tests (5 tests)
 ```
 
 ---
